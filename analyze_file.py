@@ -9,6 +9,7 @@ File content is inserted directly into the user prompt, so the input must be
 plain text / text-variant (txt, md, csv, log, code, ...).
 """
 import argparse
+import json
 import re
 import sys
 import time
@@ -17,10 +18,29 @@ from pathlib import Path
 import requests
 
 # ---------------------------------------------------------------------------
-# Dify workflow configuration (same contract as pdf_golden_qa.py)
+# Dify workflow configuration -- loaded from config.json next to this file
+# (same file the golden-QA scripts use; see config.example.json).
 # ---------------------------------------------------------------------------
-BASE_URL = "https://dify.h.rua.today/v1"
-API_KEY = "app-CIaoUR5Qpcesh8YdsNrrYs0L"
+CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+
+
+def _load_dify_config() -> tuple:
+    if not CONFIG_PATH.is_file():
+        raise SystemExit(
+            f"error: config not found: {CONFIG_PATH}\n"
+            "copy config.example.json to config.json and fill in base_url / api_key")
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"error: invalid JSON in {CONFIG_PATH}: {e}")
+    base_url = str(data.get("base_url", "")).strip().rstrip("/")
+    api_key = str(data.get("api_key", "")).strip()
+    if not base_url or not api_key:
+        raise SystemExit(f"error: {CONFIG_PATH} needs non-empty base_url and api_key")
+    return base_url, api_key
+
+
+BASE_URL, API_KEY = _load_dify_config()
 WORKFLOW_USER = "file-analyzer"
 
 REQUEST_TIMEOUT = 300
