@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,37 +79,40 @@ def upload_documents(
     auth_type: str,
     timeout: int,
     verify: bool,
+    wait_seconds: float,
 ) -> tuple[dict[str, Any], list[str]]:
-    opened_files = []
-    try:
-        multipart_files = []
-        for path in file_paths:
-            if not path.is_file():
-                raise CoeusError(f"no such file: {path}")
-            handle = path.open("rb")
-            opened_files.append(handle)
-            content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-            multipart_files.append(("file", (path.name, handle, content_type)))
+    document_ids = []
+    for index, path in enumerate(file_paths):
+        if not path.is_file():
+            raise CoeusError(f"no such file: {path}")
 
-        payload = request_json(
-            "POST",
-            f"{base_url.rstrip('/')}/document/upload",
-            headers=auth_headers(api_key, auth_type),
-            data={"kb_id": kb_id},
-            files=multipart_files,
-            timeout=timeout,
-            verify=verify,
-        )
-    finally:
-        for handle in opened_files:
-            handle.close()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        with path.open("rb") as handle:
+            payload = request_json(
+                "POST",
+                f"{base_url.rstrip('/')}/document/upload",
+                headers=auth_headers(api_key, auth_type),
+                data={"kb_id": kb_id},
+                files=[("file", (path.name, handle, content_type))],
+                timeout=timeout,
+                verify=verify,
+            )
 
-    document_ids = payload.get("data")
-    if not isinstance(document_ids, list) or not all(
-        isinstance(document_id, str) and document_id for document_id in document_ids
-    ):
-        raise CoeusError("upload response missing data document ID list")
-    return payload, document_ids
+        uploaded_ids = payload.get("data")
+        if not isinstance(uploaded_ids, list) or not all(
+            isinstance(document_id, str) and document_id for document_id in uploaded_ids
+        ):
+            raise CoeusError(f"upload response missing document ID list: {path}")
+        document_ids.extend(uploaded_ids)
+
+        if index < len(file_paths) - 1:
+            time.sleep(wait_seconds)
+
+    return {
+        "data": document_ids,
+        "retcode": 0,
+        "retmsg": "success",
+    }, document_ids
 
 
 def run_documents(
@@ -141,6 +145,7 @@ def upload_and_run(
     auth_type: str = DEFAULT_AUTH_TYPE,
     timeout: int = DEFAULT_TIMEOUT,
     verify: bool = True,
+    wait_seconds: float = 3,
 ) -> dict[str, Any]:
     upload_response, document_ids = upload_documents(
         base_url,
@@ -150,7 +155,9 @@ def upload_and_run(
         auth_type=auth_type,
         timeout=timeout,
         verify=verify,
+        wait_seconds=wait_seconds,
     )
+    time.sleep(wait_seconds)
     run_response = run_documents(
         base_url,
         api_key,
@@ -171,11 +178,13 @@ def main() -> int:
     base_url = "https://your-coeus-host"
     api_key = "your-api-key"
     kb_id = "your-kb-id"
-    file_paths = [
-        Path("/path/to/document.pdf"),
-    ]
+    sample_documents = Path(__file__).resolve().parent / "sample_documents"
+    file_paths = sorted(
+        path for path in sample_documents.rglob("*") if path.is_file()
+    )
     # Set to False only when the trusted Coeus endpoint uses a self-signed certificate.
     verify = True
+    wait_seconds = 3
 
     try:
         result = upload_and_run(
@@ -184,6 +193,7 @@ def main() -> int:
             kb_id,
             file_paths,
             verify=verify,
+            wait_seconds=wait_seconds,
         )
     except CoeusError as error:
         print(f"error: {error}", file=sys.stderr)
