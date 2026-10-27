@@ -35,7 +35,8 @@ def auth_headers(api_key: str, end_user_token: str | None, auth_type: str) -> di
     return headers
 
 
-def request_json(method, url, *, headers, params=None, data=None, files=None, timeout) -> dict:
+def request_json(method, url, *, headers, params=None, data=None, files=None,
+                 json_body=None, timeout) -> dict:
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         if attempt > 1:
@@ -48,6 +49,7 @@ def request_json(method, url, *, headers, params=None, data=None, files=None, ti
                 params=params,
                 data=data,
                 files=files,
+                json=json_body,
                 timeout=timeout,
             )
         except requests.RequestException as error:
@@ -131,12 +133,21 @@ def run_document(
     auth_type: str,
     timeout: int,
 ) -> dict:
-    # TODO: /document/run request/response schema is not yet captured in
-    # Coeus-API-Spec.md (section 12-13 details missing). Fill in once confirmed.
-    raise CoeusError(
-        "/document/run request format is not documented yet; "
-        "pending confirmation before implementation"
+    url = f"{BASE_URL.rstrip('/')}/document/run"
+    headers = auth_headers(api_key, end_user_token, auth_type)
+    payload = request_json(
+        "POST",
+        url,
+        headers=headers,
+        # RAGFlow-style contract: run=1 start parsing, run=2 cancel (guessed;
+        # /document/run details are missing from Coeus-API-Spec.md).
+        json_body={"doc_ids": doc_ids, "run": 1 if action == "run" else 2},
+        timeout=timeout,
     )
+    retcode = payload.get("retcode")
+    if retcode not in (0, None):
+        raise CoeusError(f"run failed: retcode={retcode} retmsg={payload.get('retmsg')}")
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -181,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = subparsers.add_parser(
         "run",
         parents=[common],
-        help="start or cancel parsing for uploaded document(s) (not yet implemented)",
+        help="start or cancel parsing for uploaded document(s)",
     )
     p_run.add_argument("doc_ids", nargs="+", help="document ID(s) returned by upload")
     p_run.add_argument(
