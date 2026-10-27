@@ -7,6 +7,7 @@ public record CoeusProperties(
         String baseUrl,
         String apiKey,
         String authType,
-        String endUserToken
+        String endUserToken,
+        boolean sslVerify
 ) {
 }

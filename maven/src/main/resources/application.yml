@@ -6,3 +6,4 @@ coeus:
   api-key: ${COEUS_API_KEY}
   auth-type: ${COEUS_AUTH_TYPE:saas}
   end-user-token: ${COEUS_END_USER_TOKEN:}
+  ssl-verify: ${COEUS_SSL_VERIFY:false}
